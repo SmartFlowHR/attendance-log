@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سجل الحضور والانصراف</title>
+
+<!-- ============================================================
+     المكتبات الخارجية (CDN)
+============================================================ -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx-js-style.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Almarai:wght@400;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+/* ============================================================
+   1) نظام الألوان والمتغيرات (Design Tokens)
+============================================================ */
+:root{
+  --navy-950:#070f24;
+  --navy-900:#0d1a33;
+  --navy-800:#13244a;
+  --navy-700:#1b3160;
+  --slate-700:#3b4a63;
+  --slate-500:#64748b;
+  --slate-300:#b7c1d1;
+  --slate-100:#eef1f6;
+  --slate-50:#f6f8fb;
+  --accent-600:#1d4ed8;
+  --accent-500:#2563eb;
+  --accent-100:#dbe7ff;
+  --gold-500:#c9a24a;
+  --gold-300:#e6cf94;
+  --green-600:#15803d;
+  --green-100:#dcfce7;
+  --red-600:#b91c1c;
+  --red-100:#fee2e2;
+  --amber-600:#b45309;
+  --amber-100:#fef3c7;
+  --blue-600:#1d4ed8;
+  --blue-100:#dbeafe;
+  --radius-sm:6px;
+  --radius-md:10px;
+  --radius-lg:16px;
+  --shadow-card:0 1px 2px rgba(13,26,51,.06), 0 8px 24px -12px rgba(13,26,51,.18);
+}
+
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  font-family:'IBM Plex Sans Arabic', sans-serif;
+  background:var(--slate-50);
+  color:var(--navy-900);
+  min-height:100vh;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3,.num-font{font-family:'Almarai', sans-serif;}
+button{font-family:inherit;cursor:pointer;}
+input,select{font-family:inherit;}
+
+::selection{background:var(--accent-100);}
+
+/* ============================================================
+   2) شاشة الأمان / منع الوصول
+============================================================ */
+#lock-screen{
+  position:fixed;inset:0;
+  background:
+    radial-gradient(1100px 600px at 15% -10%, #16274f 0%, transparent 60%),
+    radial-gradient(900px 500px at 110% 110%, #0f1b3a 0%, transparent 55%),
+    linear-gradient(160deg, var(--navy-950), var(--navy-900) 55%, #0a1730);
+  display:flex;align-items:center;justify-content:center;
+  z-index:9999;
+  padding:24px;
+}
+.lock-card{
+  width:100%;max-width:460px;
+  background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.02));
+  border:1px solid rgba(201,162,74,.35);
+  border-radius:var(--radius-lg);
+  padding:44px 36px 36px;
+  text-align:center;
+  color:#eef1f8;
+  box-shadow:0 30px 80px -20px rgba(0,0,0,.6);
+  backdrop-filter:blur(6px);
+}
+.lock-icon{
+  width:72px;height:72px;margin:0 auto 22px;
+  border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 35% 30%, #2a3f6e, #0f1b3a 70%);
+  border:1px solid var(--gold-500);
+}
+.lock-card h2{
+  font-size:20px;margin:0 0 10px;color:#fff;letter-spacing:.2px;
+}
+.lock-card p{
+  font-size:14.5px;line-height:1.9;color:var(--slate-300);margin:0 0 6px;
+}
+.lock-card .divider{
+  width:56px;height:2px;background:linear-gradient(90deg, transparent, var(--gold-500), transparent);
+  margin:20px auto;
+}
+.lock-meta{
+  font-size:12.5px;color:#8ea0c5;margin-top:18px;
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:var(--radius-sm);
+  padding:10px 14px;
+  word-break:break-all;
+}
+
+/* حالة الحظر الصارم عند رفض الوصول */
+.lock-card.denied{
+  border-color:rgba(248,113,113,.45);
+  box-shadow:0 30px 90px -20px rgba(127,29,29,.55);
+}
+.lock-card.denied .lock-icon{
+  background:radial-gradient(circle at 35% 30%, #3a1414, #1a0808 70%);
+  border-color:#f87171;
+}
+.lock-card.denied h2{color:#fecaca;}
+.lock-card.denied .divider{
+  background:linear-gradient(90deg, transparent, #f87171, transparent);
+}
+.lock-card.denied .lock-meta{
+  border-color:rgba(248,113,113,.3);
+  background:rgba(127,29,29,.12);
+  color:#fca5a5;
+}
+
+/* ============================================================
+   3) هيكل التطبيق العام
+============================================================ */
+#app{display:none;min-height:100vh;}
+#app.ready{display:block;}
+
+.topbar{
+  background:linear-gradient(135deg, var(--navy-900), var(--navy-800) 60%, var(--navy-700));
+  color:#fff;
+  padding:22px 28px;
+  display:flex;align-items:center;justify-content:space-between;
+  gap:20px;flex-wrap:wrap;
+  border-bottom:3px solid var(--gold-500);
+}
+.topbar .brand{display:flex;align-items:center;gap:14px;}
+.brand-badge{
+  width:44px;height:44px;border-radius:12px;
+  background:linear-gradient(135deg, var(--accent-500), var(--navy-700));
+  display:flex;align-items:center;justify-content:center;
+  border:1px solid rgba(201,162,74,.5);
+  flex-shrink:0;
+}
+.brand h1{font-size:19px;margin:0;color:#fff;}
+.brand span{display:block;font-size:12.5px;color:#a9b8db;margin-top:3px;font-family:'IBM Plex Sans Arabic';font-weight:400;}
+.session-chip{
+  background:rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:999px;
+  padding:8px 16px;
+  font-size:13px;
+  display:flex;align-items:center;gap:8px;
+  color:#dbe4f5;
+}
+.session-chip b{color:#fff;font-weight:600;}
+.dot-live{width:7px;height:7px;border-radius:50%;background:#34d399;box-shadow:0 0 0 3px rgba(52,211,153,.25);}
+
+.container{max-width:1400px;margin:0 auto;padding:26px 28px 60px;}
+
+/* ============================================================
+   4) لوحة الفلاتر
+============================================================ */
+.panel{
+  background:#fff;
+  border:1px solid var(--slate-100);
+  border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-card);
+}
+.filters-panel{padding:22px 24px;margin-bottom:22px;}
+.filters-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+.filters-head h3{font-size:15px;margin:0;color:var(--navy-900);display:flex;align-items:center;gap:8px;}
+.filters-grid{
+  display:grid;
+  grid-template-columns:repeat(6,1fr);
+  gap:14px;
+}
+.field{display:flex;flex-direction:column;gap:6px;}
+.field label{font-size:12.5px;color:var(--slate-500);font-weight:600;}
+.field input, .field select{
+  border:1.5px solid var(--slate-100);
+  background:var(--slate-50);
+  border-radius:var(--radius-sm);
+  padding:10px 12px;
+  font-size:13.5px;
+  color:var(--navy-900);
+  transition:border-color .15s, background .15s;
+  width:100%;
+}
+.field input:focus, .field select:focus{
+  outline:none;border-color:var(--accent-500);background:#fff;
+}
+.filters-actions{
+  display:flex;gap:10px;margin-top:18px;flex-wrap:wrap;
+  border-top:1px dashed var(--slate-100);padding-top:16px;
+}
+.btn{
+  border:none;border-radius:var(--radius-sm);
+  padding:10.5px 20px;font-size:13.5px;font-weight:600;
+  display:inline-flex;align-items:center;gap:8px;
+  transition:transform .1s, box-shadow .15s, background .15s;
+}
+.btn:active{transform:translateY(1px);}
+.btn-primary{background:linear-gradient(135deg, var(--accent-600), var(--accent-500));color:#fff;box-shadow:0 8px 18px -8px rgba(37,99,235,.6);}
+.btn-primary:hover{box-shadow:0 10px 22px -8px rgba(37,99,235,.75);}
+.btn-ghost{background:var(--slate-100);color:var(--slate-700);}
+.btn-ghost:hover{background:#e4e9f1;}
+.btn-excel{background:linear-gradient(135deg,#1a7f4b,#15803d);color:#fff;}
+.btn-pdf{background:linear-gradient(135deg,#1b2b52,#0d1a33);color:#fff;border:1px solid var(--gold-500);}
+.btn[disabled]{opacity:.45;cursor:not-allowed;box-shadow:none;}
+.spacer{flex:1;}
+
+/* ============================================================
+   5) بطاقات KPI
+============================================================ */
+.kpi-grid{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:22px;
+}
+.kpi-card{
+  background:#fff;border-radius:var(--radius-lg);padding:18px 20px;
+  border:1px solid var(--slate-100);box-shadow:var(--shadow-card);
+  position:relative;overflow:hidden;
+}
+.kpi-card::before{
+  content:"";position:absolute;inset-inline-start:0;top:0;bottom:0;width:4px;
+  background:var(--kpi-color, var(--accent-500));
+}
+.kpi-label{font-size:12.5px;color:var(--slate-500);font-weight:600;margin-bottom:8px;}
+.kpi-value{font-size:26px;font-weight:800;color:var(--navy-900);}
+.kpi-unit{font-size:12.5px;color:var(--slate-500);font-weight:500;margin-inline-start:4px;}
+
+/* ============================================================
+   6) جدول البيانات
+============================================================ */
+.table-panel{padding:0;overflow:hidden;}
+.table-toolbar{
+  display:flex;align-items:center;gap:12px;padding:16px 20px;
+  border-bottom:1px solid var(--slate-100);flex-wrap:wrap;
+}
+.table-toolbar .quick-search{
+  flex:1;min-width:220px;position:relative;
+}
+.table-toolbar .quick-search input{
+  width:100%;padding:9px 14px;border:1.5px solid var(--slate-100);
+  border-radius:999px;background:var(--slate-50);font-size:13px;
+}
+.table-toolbar .quick-search input:focus{outline:none;border-color:var(--accent-500);background:#fff;}
+.result-count{font-size:12.5px;color:var(--slate-500);white-space:nowrap;}
+.result-count b{color:var(--navy-900);}
+
+.pagination-bar{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:14px 18px;border-top:1px solid var(--slate-100);
+  background:linear-gradient(180deg,#fff,#f8fafc);flex-wrap:wrap;
+}
+.pagination-left,.pagination-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.page-size-label{font-size:12.5px;color:var(--slate-500);font-weight:600;}
+.page-size-select{
+  border:1px solid var(--slate-100);background:#fff;border-radius:8px;
+  padding:8px 10px;font:inherit;font-size:12.5px;color:var(--navy-900);
+}
+.page-btn{
+  min-width:36px;height:36px;padding:0 10px;border:1px solid var(--slate-100);
+  border-radius:8px;background:#fff;color:var(--navy-800);font-weight:700;
+}
+.page-btn:hover:not(:disabled){background:var(--accent-100);border-color:#bfd0f7;}
+.page-btn.active{background:var(--accent-600);color:#fff;border-color:var(--accent-600);}
+.page-btn:disabled{opacity:.4;cursor:not-allowed;}
+.page-info{font-size:12.5px;color:var(--slate-500);font-weight:600;}
+.page-numbers{display:flex;align-items:center;gap:5px;}
+
+.export-progress{
+  position:fixed;inset:0;background:rgba(7,15,36,.58);backdrop-filter:blur(3px);
+  z-index:10000;display:none;align-items:center;justify-content:center;padding:20px;
+}
+.export-progress.show{display:flex;}
+.export-card{
+  width:min(460px,100%);background:#fff;border-radius:16px;padding:28px;
+  box-shadow:0 30px 80px rgba(0,0,0,.28);text-align:center;
+}
+.export-card h3{margin:0 0 8px;font-size:17px;color:var(--navy-900);}
+.export-card p{margin:0 0 16px;font-size:13px;color:var(--slate-500);}
+.export-track{height:8px;background:var(--slate-100);border-radius:999px;overflow:hidden;}
+.export-track span{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent-600),var(--gold-500));transition:width .2s;}
+.export-percent{margin-top:9px;font-size:12px;color:var(--slate-500);font-weight:700;}
+
+.table-scroll{overflow-x:auto;max-height:640px;overflow-y:auto;}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:1180px;}
+thead th{
+  position:sticky;top:0;z-index:2;
+  background:var(--navy-900);color:#fff;
+  padding:12px 14px;text-align:right;font-weight:700;font-size:12.5px;
+  white-space:nowrap;
+}
+tbody td{
+  padding:11px 14px;border-bottom:1px solid var(--slate-100);
+  color:var(--navy-900);white-space:nowrap;
+}
+tbody tr:hover{background:var(--slate-50);}
+tbody tr:nth-child(even){background:#fbfcfe;}
+tbody tr:nth-child(even):hover{background:var(--slate-50);}
+
+.badge{
+  display:inline-block;padding:4px 12px;border-radius:999px;font-size:12px;font-weight:700;
+}
+.badge-present{background:var(--green-100);color:var(--green-600);}
+.badge-absent{background:var(--red-100);color:var(--red-600);}
+.badge-late{background:var(--amber-100);color:var(--amber-600);}
+.badge-early{background:#ffe8d6;color:#b45309;}
+.badge-leave{background:var(--blue-100);color:var(--blue-600);}
+.badge-default{background:var(--slate-100);color:var(--slate-700);}
+
+.empty-state, .loading-state, .error-state{
+  padding:70px 20px;text-align:center;color:var(--slate-500);
+}
+.empty-state svg, .error-state svg{margin-bottom:14px;opacity:.6;}
+.error-state{color:var(--red-600);}
+.spinner{
+  width:34px;height:34px;border-radius:50%;
+  border:3px solid var(--slate-100);border-top-color:var(--accent-500);
+  margin:0 auto 14px;animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+.footer-note{text-align:center;color:var(--slate-500);font-size:12px;margin-top:26px;}
+
+/* ============================================================
+   7) طباعة PDF (محتوى مخفي يُستخدم عند التصدير فقط)
+============================================================ */
+#pdf-export-root{
+  position:fixed;top:0;left:0;width:1120px;background:#fff;
+  z-index:-1;opacity:0;pointer-events:none;
+}
+#pdf-export-root.pdf-capturing{
+  z-index:10001;opacity:1;pointer-events:none;
+}
+.pdf-page{padding:34px;font-family:'IBM Plex Sans Arabic', sans-serif;direction:rtl;}
+.pdf-header{
+  display:flex;justify-content:space-between;align-items:flex-start;
+  border-bottom:3px solid #c9a24a;padding-bottom:16px;margin-bottom:18px;
+}
+.pdf-header h2{margin:0 0 6px;color:#0d1a33;font-size:20px;}
+.pdf-header .pdf-sub{font-size:12px;color:#64748b;}
+.pdf-meta{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:10px;
+  background:#f6f8fb;border:1px solid #eef1f6;border-radius:8px;
+  padding:12px 16px;margin-bottom:16px;font-size:12px;color:#3b4a63;
+}
+.pdf-meta b{color:#0d1a33;}
+#pdf-export-root table{width:100%;border-collapse:collapse;font-size:10.5px;}
+#pdf-export-root th{background:#0d1a33;color:#fff;padding:7px 8px;text-align:right;}
+#pdf-export-root td{padding:6px 8px;border-bottom:1px solid #e2e8f0;color:#0d1a33;}
+#pdf-export-root tr:nth-child(even) td{background:#f6f8fb;}
+.pdf-footer{margin-top:16px;font-size:10px;color:#94a3b8;text-align:center;border-top:1px solid #eef1f6;padding-top:10px;}
+
+/* ============================================================
+   8) الاستجابة للشاشات الصغيرة
+============================================================ */
+@media (max-width:1100px){
+  .filters-grid{grid-template-columns:repeat(3,1fr);}
+  .kpi-grid{grid-template-columns:repeat(2,1fr);}
+}
+@media (max-width:680px){
+  .topbar{padding:18px 16px;}
+  .container{padding:18px 14px 40px;}
+  .filters-grid{grid-template-columns:repeat(2,1fr);}
+  .kpi-grid{grid-template-columns:1fr 1fr;}
+  .filters-actions{flex-direction:column;}
+  .filters-actions .btn{width:100%;justify-content:center;}
+  .pagination-bar{align-items:stretch;flex-direction:column;}
+  .pagination-left,.pagination-right{justify-content:center;}
+}
+@media (max-width:420px){
+  .filters-grid{grid-template-columns:1fr;}
+}
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     شاشة منع الوصول (تظهر افتراضياً إلى أن يتم التحقق)
+============================================================ -->
+<div id="lock-screen">
+  <div class="lock-card">
+    <div class="lock-icon">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
+        <path d="M6 10V8a6 6 0 1 1 12 0v2" stroke="#e6cf94" stroke-width="1.6"/>
+        <rect x="4.5" y="10" width="15" height="10.5" rx="2.4" stroke="#e6cf94" stroke-width="1.6"/>
+        <circle cx="12" cy="15.2" r="1.4" fill="#e6cf94"/>
+      </svg>
+    </div>
+    <h2 id="lock-title">جارِ التحقق من الصلاحية...</h2>
+    <p id="lock-message">يرجى الانتظار بينما نتحقق من صلاحيات الوصول الخاصة بك.</p>
+    <div class="divider"></div>
+    <div class="lock-meta" id="lock-meta">جارِ التحميل…</div>
+  </div>
+</div>
+
+<!-- ============================================================
+     التطبيق الرئيسي
+============================================================ -->
+<div id="app">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-badge">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 19V6.6C4 5.7 4.7 5 5.6 5h12.8c.9 0 1.6.7 1.6 1.6V19M4 19h16M4 19l-1.2 2h18.4L20 19" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/><path d="M8 9h8M8 12.5h8M8 16h5" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </div>
+      <div>
+        <h1>سجل الحضور والانصراف</h1>
+        <span>لوحة الاستعلام والتصدير</span>
+      </div>
+    </div>
+    <div class="session-chip">
+      <span class="dot-live"></span>
+      متصل باسم: <b id="session-email">—</b>
+    </div>
+  </div>
+
+  <div class="container">
+
+    <!-- لوحة الفلاتر -->
+    <div class="panel filters-panel">
+      <div class="filters-head">
+        <h3>🔍 البحث والفلترة المتقدمة</h3>
+      </div>
+      <div class="filters-grid">
+        <div class="field">
+          <label>رقم الموظف</label>
+          <input type="text" id="f-emp-id" placeholder="مثال: 101">
+        </div>
+        <div class="field">
+          <label>الفرع</label>
+          <input type="text" id="f-branch" list="branch-list" placeholder="اسم الفرع">
+          <datalist id="branch-list"></datalist>
+        </div>
+        <div class="field">
+          <label>الحالة</label>
+          <select id="f-status">
+            <option value="">كل الحالات</option>
+            <option value="حاضر">حاضر</option>
+            <option value="غائب">غائب</option>
+            <option value="متأخر">متأخر</option>
+            <option value="خروج مبكر">خروج مبكر</option>
+            <option value="إجازة">إجازة</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>من تاريخ</label>
+          <input type="date" id="f-date-from">
+        </div>
+        <div class="field">
+          <label>إلى تاريخ</label>
+          <input type="date" id="f-date-to">
+        </div>
+        <div class="field">
+          <label>المناوبة</label>
+          <input type="text" id="f-shift" placeholder="مثال: صباحية">
+        </div>
+      </div>
+      <div class="filters-actions">
+        <button class="btn btn-primary" id="btn-search">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="#fff" stroke-width="2"/><path d="M21 21l-4.3-4.3" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>
+          بحث
+        </button>
+        <button class="btn btn-ghost" id="btn-reset">إعادة ضبط الفلاتر</button>
+        <div class="spacer"></div>
+        <button class="btn btn-excel" id="btn-export-excel" disabled>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 3v13m0 0l-4-4m4 4l4-4" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 21h16" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>
+          تصدير Excel
+        </button>
+        <button class="btn btn-pdf" id="btn-export-pdf" disabled>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M6 3h9l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" stroke="#e6cf94" stroke-width="1.6"/><path d="M14 3v5h5" stroke="#e6cf94" stroke-width="1.6"/></svg>
+          تصدير PDF
+        </button>
+      </div>
+    </div>
+
+    <!-- بطاقات KPI -->
+    <div class="kpi-grid" id="kpi-grid" style="display:none;">
+      <div class="kpi-card" style="--kpi-color:var(--accent-500)">
+        <div class="kpi-label">إجمالي السجلات</div>
+        <div class="kpi-value num-font" id="kpi-count">0</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:#15803d">
+        <div class="kpi-label">إجمالي ساعات العمل</div>
+        <div class="kpi-value num-font" id="kpi-hours">0<span class="kpi-unit">ساعة</span></div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:#b45309">
+        <div class="kpi-label">مجموع دقائق التأخير</div>
+        <div class="kpi-value num-font" id="kpi-late">0<span class="kpi-unit">دقيقة</span></div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:#b91c1c">
+        <div class="kpi-label">مجموع دقائق الخروج المبكر</div>
+        <div class="kpi-value num-font" id="kpi-early">0<span class="kpi-unit">دقيقة</span></div>
+      </div>
+    </div>
+
+    <!-- الجدول -->
+    <div class="panel table-panel">
+      <div class="table-toolbar">
+        <div class="quick-search">
+          <input type="text" id="quick-filter" placeholder="فلترة فورية داخل النتائج المعروضة...">
+        </div>
+        <div class="result-count" id="result-count"></div>
+      </div>
+      <div class="table-scroll">
+        <table id="data-table">
+          <thead>
+            <tr>
+              <th>رقم الموظف</th>
+              <th>الاسم</th>
+              <th>الفرع</th>
+              <th>المناوبة</th>
+              <th>التاريخ</th>
+              <th>اليوم</th>
+              <th>تسجيل الدخول</th>
+              <th>تسجيل الخروج</th>
+              <th>إجمالي ساعات العمل</th>
+              <th>تأخير (د)</th>
+              <th>خروج مبكر (د)</th>
+              <th>الحالة</th>
+            </tr>
+          </thead>
+          <tbody id="table-body"></tbody>
+        </table>
+      </div>
+      <div class="pagination-bar" id="pagination-bar" style="display:none;">
+        <div class="pagination-left">
+          <span class="page-size-label">عدد الصفوف في الشاشة:</span>
+          <select id="page-size" class="page-size-select" aria-label="عدد الصفوف في الصفحة">
+            <option value="300">300 سجل</option>
+            <option value="500" selected>500 سجل</option>
+          </select>
+          <span class="page-info" id="page-info">صفحة 1 من 1</span>
+        </div>
+        <div class="pagination-right">
+          <button class="page-btn" id="page-first" title="الصفحة الأولى">الأولى</button>
+          <button class="page-btn" id="page-prev" title="الصفحة السابقة">السابق</button>
+          <div class="page-numbers" id="page-numbers"></div>
+          <button class="page-btn" id="page-next" title="الصفحة التالية">التالي</button>
+          <button class="page-btn" id="page-last" title="الصفحة الأخيرة">الأخيرة</button>
+        </div>
+      </div>
+      <div id="state-empty" class="empty-state">
+        <svg width="46" height="46" viewBox="0 0 24 24" fill="none"><path d="M4 19V6.6C4 5.7 4.7 5 5.6 5h12.8c.9 0 1.6.7 1.6 1.6V19M4 19h16" stroke="#94a3b8" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <div>استخدم الفلاتر أعلاه ثم اضغط "بحث" لعرض سجل الحضور والانصراف</div>
+      </div>
+      <div id="state-loading" class="loading-state" style="display:none;">
+        <div class="spinner"></div>
+        جارِ تحميل السجل...
+      </div>
+      <div id="state-error" class="error-state" style="display:none;"></div>
+    </div>
+
+    <div class="footer-note">سجل الحضور والانصراف — جميع الحقوق محفوظة</div>
+  </div>
+</div>
+
+<div class="export-progress" id="export-progress" aria-hidden="true">
+  <div class="export-card">
+    <h3 id="export-progress-title">جارِ تجهيز الملف...</h3>
+    <p id="export-progress-text">يرجى الانتظار</p>
+    <div class="export-track"><span id="export-progress-bar"></span></div>
+    <div class="export-percent" id="export-progress-percent">0%</div>
+  </div>
+</div>
+
+<!-- ============================================================
+     منطقة مخفية لبناء تقرير PDF فاخر عند التصدير
+============================================================ -->
+<div id="pdf-export-root">
+  <div class="pdf-page">
+    <div class="pdf-header">
+      <div>
+        <h2>تقرير سجل الحضور والانصراف</h2>
+        <div class="pdf-sub">تم إنشاؤه آلياً من نظام سجل الحضور والانصراف</div>
+      </div>
+    </div>
+    <div class="pdf-meta">
+      <div>تاريخ التقرير: <b id="pdf-meta-date"></b></div>
+      <div>البريد المستعلم: <b id="pdf-meta-email"></b></div>
+      <div>إجمالي النتائج: <b id="pdf-meta-total"></b></div>
+    </div>
+    <table id="pdf-table">
+      <thead>
+        <tr>
+          <th>رقم الموظف</th><th>الاسم</th><th>الفرع</th><th>المناوبة</th><th>التاريخ</th>
+          <th>اليوم</th><th>الدخول</th><th>الخروج</th><th>ساعات العمل</th>
+          <th>تأخير(د)</th><th>خروج مبكر(د)</th><th>الحالة</th>
+        </tr>
+      </thead>
+      <tbody id="pdf-table-body"></tbody>
+    </table>
+    <div class="pdf-footer">تم إنشاء هذا التقرير آلياً — سجل الحضور والانصراف</div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   ⚙️ 1) إعدادات الربط — عدّل هذا القسم فقط حسب مشروعك
+============================================================ */
+const CONFIG = {
+  // بيانات مشروع Supabase
+  SUPABASE_URL: "https://jmyimdzdkoetuitkpjwd.supabase.co",
+  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpteWltZHpka29ldHVpdGtwandkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgxNjY0NTksImV4cCI6MjEwMzc0MjQ1OX0.NIwDNEzbiiETPpSvWgsEZp8B_BHD7xl4rzMj3xpV6vY",
+
+  // أسماء الجداول
+  TABLES: {
+    AUTHORIZED_USERS: "authorized_users",   // جدول المستخدمين المصرح لهم
+    ATTENDANCE: "attendance_logs"        // جدول سجلات الحضور والانصراف
+  },
+
+  // خريطة أسماء الأعمدة — مطابقة تماماً لأسماء أعمدة جدول attendance_logs في Supabase
+  COLUMNS: {
+    AUTH_EMAIL: "email",          // عمود البريد الإلكتروني في جدول المصرح لهم
+    AUTH_ACTIVE: null,            // اسم عمود "مفعل/غير مفعل" إن وجد، أو null لتجاهله
+
+    EMP_ID: "employee_id",
+    EMP_NAME: "employee_name",
+    BRANCH: "branch",
+    SHIFT: "shift",
+    DATE: "attendance_date",
+    WEEKDAY: "day_name",          // إن كان فارغاً في الجدول يتم استخراجه تلقائياً من attendance_date
+    CHECK_IN: "check_in",
+    CHECK_OUT: "check_out",
+    WORK_HOURS: "work_hours",
+    LATE_MIN: "late_min",
+    EARLY_LEAVE_MIN: "early_leave_min",
+    STATUS: "status"
+  },
+
+  PAGE_SIZE: 500, // عدد السجلات المعروضة افتراضياً في الصفحة
+  MAX_EXPORT_ROWS: 50000 // الحد الأقصى للتصدير الكامل حفاظاً على سرعة المتصفح
+};
+
+/* ============================================================
+   2) تهيئة عميل Supabase
+============================================================ */
+const sb = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+const C = CONFIG.COLUMNS;
+
+/* ============================================================
+   3) قراءة متغيرات الرابط (AppSheet)
+============================================================ */
+const urlParams = new URLSearchParams(window.location.search);
+const rawEmailParam = urlParams.get("user_email") || "";
+const userEmail = rawEmailParam.trim().toLowerCase();   // تنظيف تلقائي: إزالة المسافات وتوحيد الأحرف الصغيرة
+const urlEmpId  = (urlParams.get("emp_id") || "").trim();
+
+let currentRows = [];   // سجلات الصفحة الحالية
+let visibleRows = [];   // السجلات بعد الفلترة الفورية داخل الصفحة
+let totalRows = 0;      // إجمالي النتائج في الخادم
+let currentPage = 1;
+let pageSize = CONFIG.PAGE_SIZE;
+
+/* ============================================================
+   4) التحقق من الصلاحية (AppSheet Auth Integration)
+============================================================ */
+async function verifyAccess() {
+  const lockTitle = document.getElementById("lock-title");
+  const lockMsg   = document.getElementById("lock-message");
+  const lockMeta  = document.getElementById("lock-meta");
+
+  if (!userEmail) {
+    denyAccess();
+    return;
+  }
+
+  try {
+    let query = sb
+      .from(CONFIG.TABLES.AUTHORIZED_USERS)
+      .select("*")
+      .ilike(C.AUTH_EMAIL, userEmail);   // المقارنة تتم على البريد بعد تنظيفه (trim + lowercase)
+
+    const { data, error } = await query;
+
+    if (error) throw error;
+
+    let authorizedRecord = (data || [])[0] || null;
+
+    if (authorizedRecord && C.AUTH_ACTIVE) {
+      const activeVal = authorizedRecord[C.AUTH_ACTIVE];
+      if (activeVal === false || activeVal === 0 || activeVal === "false") {
+        authorizedRecord = null;
+      }
+    }
+
+    if (!authorizedRecord) {
+      denyAccess();
+      return;
+    }
+
+    // نجاح التحقق → إظهار التطبيق
+    document.getElementById("lock-screen").style.display = "none";
+    document.getElementById("app").classList.add("ready");
+    document.getElementById("app").removeAttribute("aria-hidden");
+    document.getElementById("session-email").textContent = userEmail;
+
+    if (urlEmpId) {
+      document.getElementById("f-emp-id").value = urlEmpId;
+    }
+
+    // تحميل أولي: آخر السجلات
+    runSearch();
+
+  } catch (err) {
+    console.error(err);
+    lockTitle.textContent = "تعذّر التحقق من الصلاحية";
+    lockMsg.textContent = "حدث خطأ أثناء الاتصال بقاعدة البيانات. يرجى المحاولة لاحقاً أو التواصل مع مسؤول النظام.";
+    lockMeta.textContent = err.message || "خطأ غير معروف";
+  }
+}
+
+/**
+ * حظر صارم للوصول: يُخفي تطبيق السجل بالكامل ويمنع أي تفاعل معه،
+ * ويعرض رسالة رفض موحّدة سواء كان السبب غياب البريد في الرابط
+ * أو عدم وجوده ضمن جدول المستخدمين المصرح لهم.
+ */
+function denyAccess() {
+  // إبقاء التطبيق مخفياً تماماً ومنع أي تفاعل معه
+  const app = document.getElementById("app");
+  app.classList.remove("ready");
+  app.setAttribute("aria-hidden", "true");
+  app.style.display = "none";
+  document.body.style.overflow = "hidden";
+
+  const lockCard = document.querySelector(".lock-card");
+  lockCard.classList.add("denied");
+  lockCard.querySelector(".lock-icon").innerHTML = `
+    <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="9" stroke="#f87171" stroke-width="1.8"/>
+      <path d="M6.5 17.5l11-11" stroke="#f87171" stroke-width="1.8" stroke-linecap="round"/>
+    </svg>`;
+
+  document.getElementById("lock-title").textContent = "🚫 تم رفض الوصول";
+  document.getElementById("lock-message").innerHTML =
+    "عذراً، تم رفض الوصول! الحساب المستخدم غير مصرح له بفتح سجل الحضور والانصراف.<br>يرجى التواصل مع الإدارة للحصول على الصلاحيات.";
+
+  const lockMeta = document.getElementById("lock-meta");
+  lockMeta.innerHTML = userEmail
+    ? `الحساب المرفوض: <b style="color:#fca5a5;">${userEmail}</b>`
+    : "";
+}
+
+/* ============================================================
+   5) بناء الاستعلام وتنفيذ البحث
+============================================================ */
+async function runSearch(page = 1) {
+  const empId    = document.getElementById("f-emp-id").value.trim();
+  const branch   = document.getElementById("f-branch").value.trim();
+  const status   = document.getElementById("f-status").value;
+  const shift    = document.getElementById("f-shift").value.trim();
+  const dateFrom = document.getElementById("f-date-from").value;
+  const dateTo   = document.getElementById("f-date-to").value;
+
+  currentPage = Math.max(1, page);
+  showState("loading");
+  setExportButtons(false);
+
+  try {
+    const from = (currentPage - 1) * pageSize;
+    const to = from + pageSize - 1;
+
+    let query = sb.from(CONFIG.TABLES.ATTENDANCE).select("*", { count: "exact" });
+
+    if (empId)  query = query.eq(C.EMP_ID, empId);
+    if (branch) query = query.ilike(C.BRANCH, "%" + branch + "%");
+    if (shift)  query = query.ilike(C.SHIFT, "%" + shift + "%");
+    if (status) query = query.eq(C.STATUS, status);
+    if (dateFrom) query = query.gte(C.DATE, dateFrom);
+    if (dateTo)   query = query.lte(C.DATE, dateTo);
+
+    query = query.order(C.DATE, { ascending: false }).range(from, to);
+
+    const { data, error, count } = await query;
+    if (error) throw error;
+
+    currentRows = data || [];
+    totalRows = Number(count || 0);
+
+    const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+    if (totalRows > 0 && currentPage > totalPages) return runSearch(totalPages);
+
+    populateBranchSuggestions(currentRows);
+    renderTable(currentRows);
+    renderKpis(currentRows);
+    renderPagination();
+
+    if (currentRows.length === 0) {
+      showState("empty", "لا توجد سجلات مطابقة لمعايير البحث الحالية.");
+    } else {
+      showState("table");
+      setExportButtons(true);
+    }
+  } catch (err) {
+    console.error(err);
+    showState("error", "تعذّر تحميل البيانات: " + (err.message || "خطأ غير معروف"));
+  }
+}
+
+function resetFilters() {
+  document.getElementById("f-emp-id").value = "";
+  document.getElementById("f-branch").value = "";
+  document.getElementById("f-status").value = "";
+  document.getElementById("f-shift").value = "";
+  document.getElementById("f-date-from").value = "";
+  document.getElementById("f-date-to").value = "";
+  document.getElementById("quick-filter").value = "";
+  runSearch();
+}
+
+/* ============================================================
+   6) عرض الحالات (تحميل / فراغ / خطأ / جدول)
+============================================================ */
+function showState(state, message) {
+  document.getElementById("state-empty").style.display = state === "empty" ? "block" : "none";
+  document.getElementById("state-loading").style.display = state === "loading" ? "block" : "none";
+  document.getElementById("state-error").style.display = state === "error" ? "block" : "none";
+  document.querySelector(".table-scroll").style.display = state === "table" ? "block" : "none";
+  document.getElementById("kpi-grid").style.display = state === "table" ? "grid" : "none";
+
+  if (state === "empty" && message) {
+    document.getElementById("state-empty").querySelector("div:last-child").textContent = message;
+  }
+  if (state === "error") {
+    document.getElementById("state-error").textContent = message || "حدث خطأ غير متوقع.";
+  }
+}
+
+function setExportButtons(enabled) {
+  document.getElementById("btn-export-excel").disabled = !enabled;
+  document.getElementById("btn-export-pdf").disabled = !enabled;
+}
+
+/* ============================================================
+   7) أدوات مساعدة لتنسيق البيانات
+============================================================ */
+function safe(val, fallback) {
+  return (val === null || val === undefined || val === "") ? (fallback ?? "—") : val;
+}
+
+function toNumber(val) {
+  if (val === null || val === undefined || val === "") return 0;
+  if (typeof val === "number") return val;
+  const n = parseFloat(String(val).trim().replace(",", "."));
+  return isNaN(n) ? 0 : n;
+}
+
+// يحوّل أي قيمة وقت "HH:MM" أو "HH:MM:SS" إلى دقائق منذ منتصف الليل، أو null إن كانت غير صالحة
+function parseTimeToMinutes(val) {
+  if (val === null || val === undefined || val === "") return null;
+  const m = String(val).trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+// يعرض تسجيل الدخول/الخروج بصيغة HH:MM فقط (بدون ثواني)
+function formatTime(val, fallback) {
+  if (val === null || val === undefined || val === "") return fallback ?? "—";
+  const m = String(val).trim().match(/^(\d{1,2}):(\d{2})/);
+  return m ? `${m[1]}:${m[2]}` : val;
+}
+
+// يحسب إجمالي ساعات العمل مباشرة من تسجيل الدخول والخروج (وليس من عمود work_hours
+// المخزّن كصفر في قاعدة البيانات). يدعم المناوبات الليلية التي تمتد لليوم التالي.
+function computeWorkHoursDecimal(row) {
+  const inMin  = parseTimeToMinutes(row[C.CHECK_IN]);
+  const outMin = parseTimeToMinutes(row[C.CHECK_OUT]);
+  if (inMin === null || outMin === null) return 0;
+  let diff = outMin - inMin;
+  if (diff < 0) diff += 24 * 60; // مناوبة تمتد إلى ما بعد منتصف الليل
+  return diff / 60;
+}
+
+function formatWorkHours(row) {
+  return computeWorkHoursDecimal(row).toFixed(2);
+}
+
+function computeWeekday(row) {
+  if (row[C.WEEKDAY]) return row[C.WEEKDAY];
+  const d = row[C.DATE];
+  if (!d) return "—";
+  try {
+    return new Intl.DateTimeFormat("ar-EG", { weekday: "long" }).format(new Date(d));
+  } catch { return "—"; }
+}
+
+function statusBadge(status) {
+  const s = (status || "").trim();
+  const map = {
+    "حاضر": "badge-present",
+    "غائب": "badge-absent",
+    "متأخر": "badge-late",
+    "تأخير": "badge-late",
+    "خروج مبكر": "badge-early",
+    "إجازة": "badge-leave"
+  };
+  const cls = map[s] || "badge-default";
+  return `<span class="badge ${cls}">${s || "—"}</span>`;
+}
+
+function populateBranchSuggestions(rows) {
+  const set = new Set();
+  rows.forEach(r => { if (r[C.BRANCH]) set.add(r[C.BRANCH]); });
+  const list = document.getElementById("branch-list");
+  list.innerHTML = "";
+  set.forEach(b => {
+    const opt = document.createElement("option");
+    opt.value = b;
+    list.appendChild(opt);
+  });
+}
+
+/* ============================================================
+   8) عرض الجدول
+============================================================ */
+function renderTable(rows) {
+  visibleRows = rows;
+  const tbody = document.getElementById("table-body");
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td>${safe(r[C.EMP_ID])}</td>
+      <td>${safe(r[C.EMP_NAME])}</td>
+      <td>${safe(r[C.BRANCH])}</td>
+      <td>${safe(r[C.SHIFT])}</td>
+      <td>${safe(r[C.DATE])}</td>
+      <td>${computeWeekday(r)}</td>
+      <td>${formatTime(r[C.CHECK_IN])}</td>
+      <td>${formatTime(r[C.CHECK_OUT], "لم يسجل")}</td>
+      <td>${formatWorkHours(r)}</td>
+      <td>${safe(r[C.LATE_MIN], 0)}</td>
+      <td>${safe(r[C.EARLY_LEAVE_MIN], 0)}</td>
+      <td>${statusBadge(r[C.STATUS])}</td>
+    </tr>
+  `).join("");
+
+  document.getElementById("result-count").innerHTML =
+    `عدد النتائج: <b>${rows.length}</b>`;
+}
+
+function renderKpis(rows) {
+  const totalHours = rows.reduce((sum, r) => sum + computeWorkHoursDecimal(r), 0);
+  const totalLate  = rows.reduce((sum, r) => sum + toNumber(r[C.LATE_MIN]), 0);
+  const totalEarly = rows.reduce((sum, r) => sum + toNumber(r[C.EARLY_LEAVE_MIN]), 0);
+
+  document.getElementById("kpi-count").textContent = rows.length;
+  document.getElementById("kpi-hours").innerHTML = totalHours.toFixed(1) + '<span class="kpi-unit">ساعة</span>';
+  document.getElementById("kpi-late").innerHTML = Math.round(totalLate) + '<span class="kpi-unit">دقيقة</span>';
+  document.getElementById("kpi-early").innerHTML = Math.round(totalEarly) + '<span class="kpi-unit">دقيقة</span>';
+}
+
+/* ============================================================
+   9) الفلترة الفورية داخل الجدول (بحث سريع على النتائج المعروضة)
+============================================================ */
+document.getElementById("quick-filter").addEventListener("input", (e) => {
+  const term = e.target.value.trim().toLowerCase();
+  if (!term) {
+    renderTable(currentRows);
+    renderKpis(currentRows);
+    return;
+  }
+
+  const filtered = currentRows.filter(r =>
+    [C.EMP_ID, C.EMP_NAME, C.BRANCH, C.SHIFT, C.STATUS]
+      .some(col => String(r[col] || "").toLowerCase().includes(term))
+  );
+  renderTable(filtered);
+  renderKpis(filtered);
+});
+
+function renderPagination() {
+  const bar = document.getElementById("pagination-bar");
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+
+  if (!totalRows) {
+    bar.style.display = "none";
+    return;
+  }
+
+  bar.style.display = "flex";
+  document.getElementById("page-info").textContent =
+    `صفحة ${currentPage} من ${totalPages} — إجمالي ${totalRows.toLocaleString("ar-SA")} سجل`;
+
+  document.getElementById("page-first").disabled = currentPage <= 1;
+  document.getElementById("page-prev").disabled = currentPage <= 1;
+  document.getElementById("page-next").disabled = currentPage >= totalPages;
+  document.getElementById("page-last").disabled = currentPage >= totalPages;
+
+  const holder = document.getElementById("page-numbers");
+  holder.innerHTML = "";
+  buildPageNumbers(currentPage, totalPages).forEach(pg => {
+    if (pg === "...") {
+      const span = document.createElement("span");
+      span.className = "page-info";
+      span.textContent = "…";
+      holder.appendChild(span);
+      return;
+    }
+    const b = document.createElement("button");
+    b.className = "page-btn" + (pg === currentPage ? " active" : "");
+    b.textContent = pg;
+    b.onclick = () => runSearch(pg);
+    holder.appendChild(b);
+  });
+}
+
+function buildPageNumbers(current, total) {
+  if (total <= 7) return Array.from({length: total}, (_, i) => i + 1);
+  const result = [1];
+  if (current > 4) result.push("...");
+  for (let i = Math.max(2, current - 1); i <= Math.min(total - 1, current + 1); i++) result.push(i);
+  if (current < total - 3) result.push("...");
+  result.push(total);
+  return result;
+}
+
+document.getElementById("page-size").addEventListener("change", e => {
+  pageSize = Number(e.target.value) || 500;
+  currentPage = 1;
+  runSearch(1);
+});
+document.getElementById("page-first").addEventListener("click", () => runSearch(1));
+document.getElementById("page-prev").addEventListener("click", () => runSearch(currentPage - 1));
+document.getElementById("page-next").addEventListener("click", () => runSearch(currentPage + 1));
+document.getElementById("page-last").addEventListener("click", () => {
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  runSearch(totalPages);
+});
+
+/* ============================================================
+   10) التصدير إلى Excel
+============================================================ */
+function showExportProgress(title, message, percent) {
+  const box = document.getElementById("export-progress");
+  box.classList.add("show");
+  box.setAttribute("aria-hidden", "false");
+  document.getElementById("export-progress-title").textContent = title;
+  document.getElementById("export-progress-text").textContent = message;
+  document.getElementById("export-progress-bar").style.width = percent + "%";
+  document.getElementById("export-progress-percent").textContent = Math.round(percent) + "%";
+}
+function hideExportProgress() {
+  document.getElementById("export-progress").classList.remove("show");
+  document.getElementById("export-progress").setAttribute("aria-hidden", "true");
+}
+
+async function fetchAllFilteredRows(onProgress) {
+  const empId=document.getElementById("f-emp-id").value.trim();
+  const branch=document.getElementById("f-branch").value.trim();
+  const status=document.getElementById("f-status").value;
+  const shift=document.getElementById("f-shift").value.trim();
+  const dateFrom=document.getElementById("f-date-from").value;
+  const dateTo=document.getElementById("f-date-to").value;
+  const chunk=1000;
+  let all=[], offset=0;
+
+  while (all.length < CONFIG.MAX_EXPORT_ROWS) {
+    let q=sb.from(CONFIG.TABLES.ATTENDANCE).select("*");
+    if(empId) q=q.eq(C.EMP_ID,empId);
+    if(branch) q=q.ilike(C.BRANCH,"%"+branch+"%");
+    if(shift) q=q.ilike(C.SHIFT,"%"+shift+"%");
+    if(status) q=q.eq(C.STATUS,status);
+    if(dateFrom) q=q.gte(C.DATE,dateFrom);
+    if(dateTo) q=q.lte(C.DATE,dateTo);
+
+    const {data,error}=await q.order(C.DATE,{ascending:false}).range(offset,offset+chunk-1);
+    if(error) throw error;
+    const batch=data||[];
+    all.push(...batch);
+    offset+=batch.length;
+    const pct=Math.min(95,(all.length/Math.max(totalRows,all.length,1))*95);
+    if(onProgress) onProgress(pct,`تم تجهيز ${all.length.toLocaleString("ar-SA")} من ${totalRows.toLocaleString("ar-SA")} سجل`);
+    if(batch.length<chunk || all.length>=totalRows || batch.length===0) break;
+  }
+  return all.slice(0,CONFIG.MAX_EXPORT_ROWS);
+}
+
+function applyExcelStyles(ws, rowsCount) {
+  const range=XLSX.utils.decode_range(ws["!ref"]);
+  const headers=["رقم الموظف","الاسم","الفرع","المناوبة","التاريخ","اليوم","تسجيل الدخول","تسجيل الخروج","إجمالي ساعات العمل","تأخير (د)","خروج مبكر (د)","الحالة"];
+  const lateCol=headers.indexOf("تأخير (د)");
+  const earlyCol=headers.indexOf("خروج مبكر (د)");
+  const statusCol=headers.indexOf("الحالة");
+
+  for(let c=range.s.c;c<=range.e.c;c++){
+    const cell=ws[XLSX.utils.encode_cell({r:0,c})];
+    if(cell) cell.s={
+      fill:{patternType:"solid",fgColor:{rgb:"0D1A33"}},
+      font:{name:"Arial",sz:11,bold:true,color:{rgb:"FFFFFF"}},
+      alignment:{horizontal:"center",vertical:"center",wrapText:true},
+      border:{bottom:{style:"medium",color:{rgb:"C9A24A"}}}
+    };
+  }
+
+  for(let r=1;r<=range.e.r;r++){
+    const isEven=r%2===0;
+    for(let c=range.s.c;c<=range.e.c;c++){
+      const cell=ws[XLSX.utils.encode_cell({r,c})];
+      if(cell) cell.s={
+        fill:{patternType:"solid",fgColor:{rgb:isEven?"F8FAFC":"FFFFFF"}},
+        font:{name:"Arial",sz:10,color:{rgb:"0D1A33"}},
+        alignment:{horizontal:"center",vertical:"center"},
+        border:{bottom:{style:"thin",color:{rgb:"E2E8F0"}}}
+      };
+    }
+    const late=lateCol>=0?toNumber(ws[XLSX.utils.encode_cell({r,c:lateCol})]?.v):0;
+    const early=earlyCol>=0?toNumber(ws[XLSX.utils.encode_cell({r,c:earlyCol})]?.v):0;
+    const status=statusCol>=0?String(ws[XLSX.utils.encode_cell({r,c:statusCol})]?.v||"").trim():"";
+
+    if(late>0 && lateCol>=0) ws[XLSX.utils.encode_cell({r,c:lateCol})].s={
+      fill:{patternType:"solid",fgColor:{rgb:late>=30?"FECACA":"FEF3C7"}},
+      font:{name:"Arial",sz:10,bold:true,color:{rgb:late>=30?"991B1B":"92400E"}},
+      alignment:{horizontal:"center",vertical:"center"}
+    };
+    if(early>0 && earlyCol>=0) ws[XLSX.utils.encode_cell({r,c:earlyCol})].s={
+      fill:{patternType:"solid",fgColor:{rgb:"FFEDD5"}},
+      font:{name:"Arial",sz:10,bold:true,color:{rgb:"9A3412"}},
+      alignment:{horizontal:"center",vertical:"center"}
+    };
+    const colors={
+      "حاضر":["DCFCE7","166534"],"غائب":["FEE2E2","991B1B"],
+      "متأخر":["FEF3C7","92400E"],"تأخير":["FEF3C7","92400E"],
+      "خروج مبكر":["FFEDD5","9A3412"],"إجازة":["DBEAFE","1D4ED8"]
+    };
+    if(statusCol>=0 && colors[status]){
+      const cell=ws[XLSX.utils.encode_cell({r,c:statusCol})];
+      cell.s={fill:{patternType:"solid",fgColor:{rgb:colors[status][0]}},
+        font:{name:"Arial",sz:10,bold:true,color:{rgb:colors[status][1]}},
+        alignment:{horizontal:"center",vertical:"center"}};
+    }
+  }
+  ws["!rows"]=[{hpt:30},...Array.from({length:rowsCount},()=>({hpt:22}))];
+}
+
+async function exportExcel() {
+  const btn=document.getElementById("btn-export-excel");
+  btn.disabled=true;
+  showExportProgress("جارِ تجهيز Excel","جاري تحميل جميع النتائج المطابقة للفلاتر…",2);
+  try{
+    const data=await fetchAllFilteredRows((pct,msg)=>showExportProgress("جارِ تجهيز Excel",msg,pct));
+    const headers=["رقم الموظف","الاسم","الفرع","المناوبة","التاريخ","اليوم","تسجيل الدخول","تسجيل الخروج","إجمالي ساعات العمل","تأخير (د)","خروج مبكر (د)","الحالة"];
+    const rows=data.map(r=>[
+      safe(r[C.EMP_ID],""),safe(r[C.EMP_NAME],""),safe(r[C.BRANCH],""),safe(r[C.SHIFT],""),
+      safe(r[C.DATE],""),computeWeekday(r),formatTime(r[C.CHECK_IN],""),formatTime(r[C.CHECK_OUT],""),
+      Number(formatWorkHours(r)),Number(safe(r[C.LATE_MIN],0)),Number(safe(r[C.EARLY_LEAVE_MIN],0)),safe(r[C.STATUS],"")
+    ]);
+    showExportProgress("جارِ تنسيق Excel","جاري تطبيق التصميم والألوان والتنسيق…",97);
+
+    const ws=XLSX.utils.aoa_to_sheet([headers,...rows]);
+    ws["!cols"]=[{wch:14},{wch:28},{wch:22},{wch:18},{wch:13},{wch:14},{wch:14},{wch:14},{wch:18},{wch:13},{wch:16},{wch:16}];
+    ws["!freeze"]={xSplit:0,ySplit:1};
+    ws["!autofilter"]={ref:ws["!ref"]};
+    ws["!views"]=[{RTL:true,state:"frozen",ySplit:1}];
+    applyExcelStyles(ws,rows.length);
+
+    const wb=XLSX.utils.book_new();
+    wb.Workbook={Views:[{RTL:true}]};
+    XLSX.utils.book_append_sheet(wb,ws,"سجل الحضور");
+
+    const totalLate=data.reduce((s,r)=>s+toNumber(r[C.LATE_MIN]),0);
+    const totalEarly=data.reduce((s,r)=>s+toNumber(r[C.EARLY_LEAVE_MIN]),0);
+    const totalHours=data.reduce((s,r)=>s+computeWorkHoursDecimal(r),0);
+    const summary=[
+      ["تقرير سجل الحضور والانصراف",""],
+      ["تاريخ التصدير",new Date().toLocaleString("ar-SA")],
+      ["إجمالي السجلات",data.length],
+      ["إجمالي ساعات العمل",Number(totalHours.toFixed(2))],
+      ["مجموع دقائق التأخير",Math.round(totalLate)],
+      ["مجموع دقائق الخروج المبكر",Math.round(totalEarly)],
+      ["ملاحظة",data.length>=CONFIG.MAX_EXPORT_ROWS?`تم تحديد التصدير عند ${CONFIG.MAX_EXPORT_ROWS.toLocaleString("ar-SA")} سجل.`:"تم تصدير جميع النتائج المطابقة للفلاتر."]
+    ];
+    const sws=XLSX.utils.aoa_to_sheet(summary);
+    sws["!cols"]=[{wch:28},{wch:55}];
+    summary.forEach((row,r)=>row.forEach((_,c)=>{
+      const cell=sws[XLSX.utils.encode_cell({r,c})];
+      cell.s={fill:{patternType:"solid",fgColor:{rgb:r===0?"0D1A33":(r%2?"F6F8FB":"FFFFFF")}},
+        font:{name:"Arial",sz:r===0?14:10,bold:r===0||c===0,color:{rgb:r===0?"FFFFFF":"0D1A33"}},
+        alignment:{vertical:"center",horizontal:"right",wrapText:true}};
+    }));
+    XLSX.utils.book_append_sheet(wb,sws,"ملخص التقرير");
+
+    XLSX.writeFile(wb,"سجل_الحضور_والانصراف_"+new Date().toISOString().slice(0,10)+".xlsx");
+  }catch(err){
+    console.error(err);
+    alert("تعذّر تصدير Excel: "+(err.message||"خطأ غير معروف"));
+  }finally{
+    hideExportProgress();
+    btn.disabled=false;
+  }
+}
+
+/* ============================================================
+   11) التصدير إلى PDF
+============================================================ */
+async function exportPdf() {
+  const btn=document.getElementById("btn-export-pdf");
+  btn.disabled=true;
+  const el=document.getElementById("pdf-export-root");
+  try{
+    showExportProgress("جارِ تجهيز PDF",`جاري تجهيز صفحة ${currentPage}…`,15);
+    document.getElementById("pdf-meta-date").textContent=new Date().toLocaleString("ar-SA");
+    document.getElementById("pdf-meta-email").textContent=userEmail||"—";
+    document.getElementById("pdf-meta-total").textContent=`${visibleRows.length} سجل — صفحة ${currentPage}`;
+
+    document.getElementById("pdf-table-body").innerHTML=visibleRows.map(r=>`
+      <tr>
+        <td>${safe(r[C.EMP_ID])}</td><td>${safe(r[C.EMP_NAME])}</td><td>${safe(r[C.BRANCH])}</td>
+        <td>${safe(r[C.SHIFT])}</td><td>${safe(r[C.DATE])}</td><td>${computeWeekday(r)}</td>
+        <td>${formatTime(r[C.CHECK_IN])}</td><td>${formatTime(r[C.CHECK_OUT],"لم يسجل")}</td>
+        <td>${formatWorkHours(r)}</td><td>${safe(r[C.LATE_MIN],0)}</td>
+        <td>${safe(r[C.EARLY_LEAVE_MIN],0)}</td><td>${safe(r[C.STATUS])}</td>
+      </tr>`).join("");
+
+    // المشكلة السابقة كانت أن التقرير خارج شاشة الرسم top:-99999px؛ html2canvas كان يلتقط صفحة بيضاء.
+    // الآن يتم عرضه مؤقتاً في طبقة مستقلة داخل viewport أثناء الالتقاط.
+    el.classList.add("pdf-capturing");
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+    showExportProgress("جارِ إنشاء PDF","جاري تحويل التقرير إلى ملف PDF…",45);
+
+    await html2pdf().set({
+      margin:5,
+      filename:"تقرير_سجل_الحضور_والانصراف_صفحة_"+currentPage+"_"+new Date().toISOString().slice(0,10)+".pdf",
+      image:{type:"jpeg",quality:.98},
+      html2canvas:{scale:1.5,useCORS:true,backgroundColor:"#ffffff",scrollX:0,scrollY:0,windowWidth:1120},
+      pagebreak:{mode:["css","legacy"]},
+      jsPDF:{unit:"mm",format:"a4",orientation:"landscape",compress:true}
+    }).from(el).save();
+
+    showExportProgress("تم إنشاء PDF","تم تصدير الصفحة الحالية بنجاح.",100);
+    await new Promise(r=>setTimeout(r,300));
+  }catch(err){
+    console.error(err);
+    alert("تعذّر تصدير PDF: "+(err.message||"خطأ غير معروف"));
+  }finally{
+    el.classList.remove("pdf-capturing");
+    hideExportProgress();
+    btn.disabled=false;
+  }
+}
+
+/* ============================================================
+   12) ربط الأحداث والتشغيل
+============================================================ */
+document.getElementById("btn-search").addEventListener("click", runSearch);
+document.getElementById("btn-reset").addEventListener("click", resetFilters);
+document.getElementById("btn-export-excel").addEventListener("click", exportExcel);
+document.getElementById("btn-export-pdf").addEventListener("click", exportPdf);
+
+["f-emp-id","f-branch","f-shift"].forEach(id => {
+  document.getElementById(id).addEventListener("keydown", (e) => {
+    if (e.key === "Enter") runSearch();
+  });
+});
+
+verifyAccess();
+</script>
+</body>
+</html>
